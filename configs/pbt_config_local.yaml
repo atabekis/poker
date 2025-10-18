@@ -4,14 +4,15 @@ env_params:
 
 pbt_params:
   population_size: 14
-  generations: 50
+  generations: 200
 
-  episodes_per_generation: 10000
+  episodes_per_generation: 500
 
   exploit_top_k_percent: 20
   exploit_bottom_k_percent: 20
 
 hyperparameter_space:
+  hidden_size: [64, 128, 256]
   batch_size: [128]
   rl_learning_rate: [0.0001, 0.005]
   sl_learning_rate: [0.0001, 0.005]
@@ -22,5 +23,5 @@ hyperparameter_space:
   epsilon_decay: [5000, 20000]
 
 checkpointing:
-  output_dir: "data/runs/local_test_run"
+  output_dir: "data/runs/local_test_run_1"
   save_every_n_generations: 2

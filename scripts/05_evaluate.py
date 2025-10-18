@@ -1,4 +1,4 @@
-# scripts/04_evaluate.py
+# scripts/05_evaluate.py
 
 import os
 import sys
@@ -20,16 +20,13 @@ from src.utils import load_checkpoint
 
 # --- strategy dictionaries for benchmark agents ---
 
-# original cfr strategy for 3-card kuhn poker
 CFR_STRATEGY = {
     "J": 0.22471, "Jb": 0.00003, "Jp": 0.33811, "Jpb": 0.00002,
     "K": 0.65545, "Kb": 0.99997, "Kp": 0.99988, "Kpb": 0.99996,
     "Q": 0.00014, "Qb": 0.33643, "Qp": 0.00023, "Qpb": 0.56420,
 }
 
-# new mccfr strategy transcribed from the provided image
 MCCFR_STRATEGY = {
-    # history: bet probability
     "1": 0.195, "1C": 0.32, "1B": 0.03, "1CB": 0.03,
     "2": 0.03, "2C": 0.05, "2B": 0.44, "2CB": 0.53,
     "3": 0.578, "3C": 0.97, "3B": 0.97, "3CB": 0.97,
@@ -89,11 +86,8 @@ class MCCFRAgent(BaseAgent):
     def act(self, env: KuhnPokerEnv) -> int:
         card_int = env.cards[env.current_player]
         history = env.history
-
-        # convert our env's card integer (0,1,2) to the strategy's card key ('1','2','3')
         card_key = str(card_int + 1)
 
-        # convert our env's history ('p', 'b', 'pb') to the strategy's suffix ('C', 'B', 'CB')
         history_suffix = ""
         if history == "p":
             history_suffix = "C"
@@ -111,8 +105,23 @@ class MCCFRAgent(BaseAgent):
 class NFSPInferenceAgent(BaseAgent):
     """a wrapper for our trained nfsp agents for inference."""
 
-    def __init__(self, avg_strategy_state_dict, state_dim, num_actions, device):
-        self.avg_strategy_net = AverageStrategyNet(state_dim, num_actions).to(device)
+    def __init__(self, agent_data: dict, state_dim: int, num_actions: int, device):
+        """
+        initializes the inference agent from a population data dictionary.
+
+        :param agent_data: the dictionary for one agent from the loaded population list.
+        :param state_dim: the dimension of the state space.
+        :param num_actions: the number of possible actions.
+        :param device: the torch device to use (cpu or cuda).
+        """
+        avg_strategy_state_dict = agent_data['weights']['as_net']
+
+        # definitive fix: deduce hidden_size by inspecting the weight tensor shapes.
+        # the shape of the first layer's weight is [hidden_size, input_size].
+        # this is robust and does not depend on the config file.
+        hidden_size = avg_strategy_state_dict['network.0.weight'].shape[0]
+
+        self.avg_strategy_net = AverageStrategyNet(state_dim, num_actions, hidden_size).to(device)
         self.avg_strategy_net.load_state_dict(avg_strategy_state_dict)
         self.avg_strategy_net.eval()
         self.device = device
@@ -184,7 +193,7 @@ def main(args):
     nfsp_agents = []
     for p_data in population:
         agent = NFSPInferenceAgent(
-            p_data['weights']['as_net'],
+            p_data,  # pass the entire agent data dictionary
             env.state_dim,
             env.NUM_ACTIONS,
             device
@@ -208,15 +217,16 @@ def main(args):
     champion_index = np.argmax(total_wins)
     champion_agent = nfsp_agents[champion_index]
     champion_id = population[champion_index]['id']
+    champion_config = population[champion_index]['config']
 
     print("internal tournament complete.")
-    print(f"  -> champion is agent id: {champion_id}")
+    print(f"  -> champion is agent id: {champion_id} with config: {champion_config}")
 
     benchmarks = {
         "RandomAgent": RandomAgent(),
         "PassAgent": PassAgent(),
         "CFRAgent": CFRAgent(CFR_STRATEGY),
-        "MCCFRAgent": MCCFRAgent(MCCFR_STRATEGY)  # new benchmark added here
+        "MCCFRAgent": MCCFRAgent(MCCFR_STRATEGY)
     }
 
     results = {}

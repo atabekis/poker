@@ -39,14 +39,15 @@ class NFSPAgent:
         self.epsilon_end = config['epsilon_end']
         self.epsilon_decay = config['epsilon_decay']
 
+        hidden_size = config.get('hidden_size', 128)
+
         # networks
-        self.best_response_net = BestResponseNet(self.state_dim, self.num_actions).to(self.device)
-        # new: target network for dqn stability
-        self.target_net = BestResponseNet(self.state_dim, self.num_actions).to(self.device)
+        self.best_response_net = BestResponseNet(self.state_dim, self.num_actions, hidden_size).to(self.device)
+        self.target_net = BestResponseNet(self.state_dim, self.num_actions, hidden_size).to(self.device)
         self.target_net.load_state_dict(self.best_response_net.state_dict())
         self.target_net.eval()  # target network is only for inference
 
-        self.avg_strategy_net = AverageStrategyNet(self.state_dim, self.num_actions).to(self.device)
+        self.avg_strategy_net = AverageStrategyNet(self.state_dim, self.num_actions, hidden_size).to(self.device)
 
         # optimizers
         self.rl_optimizer = optim.Adam(self.best_response_net.parameters(), lr=config['rl_learning_rate'])
@@ -88,7 +89,11 @@ class NFSPAgent:
                 return random.randrange(self.num_actions)
 
     def _update_rl_net(self) -> float | None:
-        """performs a single update step on the best response network (dqn)."""
+        """
+        performs a single update step on the best response network (dqn).
+
+        this version uses double dqn (ddqn) for more stable q-value estimation.
+        """
         if len(self.rl_buffer) < self.batch_size:
             return None
 
@@ -103,8 +108,20 @@ class NFSPAgent:
 
         current_q_values = self.best_response_net(states).gather(1, actions)
 
-        # the target is simply the final (monte carlo) reward we stored.
-        target_q_values = rewards
+        # --- start of ddqn modification ---
+        next_q_values = torch.zeros(self.batch_size, device=self.device)
+        if next_states.size(0) > 0:
+            with torch.no_grad():
+                # 1. select the best action for the next state using the *main* network.
+                next_state_actions = self.best_response_net(next_states).max(1)[1].unsqueeze(1)
+
+                # 2. evaluate the q-value of that chosen action using the stable *target* network.
+                next_q_values[non_final_mask] = self.target_net(next_states).gather(1, next_state_actions).squeeze(1)
+
+        # compute the target q-values using the bellman equation.
+        # the (1 - dones) term correctly ensures the future value is zero for terminal states.
+        target_q_values = rewards + (self.gamma * next_q_values.unsqueeze(1) * (1 - dones))
+        # --- end of ddqn modification ---
 
         loss = F.smooth_l1_loss(current_q_values, target_q_values)
 
@@ -140,7 +157,7 @@ class NFSPAgent:
         policy_net_state_dict = self.best_response_net.state_dict()
         for key in policy_net_state_dict:
             target_net_state_dict[key] = policy_net_state_dict[key] * self.tau + target_net_state_dict[key] * (
-                        1 - self.tau)
+                    1 - self.tau)
         self.target_net.load_state_dict(target_net_state_dict)
 
     def learn(self) -> tuple[float | None, float | None]:
@@ -148,14 +165,12 @@ class NFSPAgent:
         executes one learning step for both the rl and sl networks.
         """
         rl_loss = self._update_rl_net()
-        sl_loss = self._update_sl_net()
+        sl_loss = self.sl_optimizer is not None and self._update_sl_net()
 
         if rl_loss is not None:
             self._soft_update_target_net()
 
         return rl_loss, sl_loss
-
-    # --- missing methods added below ---
 
     def get_state_dicts(self) -> dict:
         """
@@ -175,5 +190,5 @@ class NFSPAgent:
         :param weights: a dictionary containing the state dicts.
         """
         self.best_response_net.load_state_dict(weights['br_net'])
-        self.target_net.load_state_dict(weights['br_net'])  # target net syncs with br_net
+        self.target_net.load_state_dict(weights['br_net'])
         self.avg_strategy_net.load_state_dict(weights['as_net'])
