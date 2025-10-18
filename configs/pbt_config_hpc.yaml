@@ -1,0 +1,38 @@
+# configs/pbt_config_hpc.yaml
+# this configuration is designed for a full training run on a powerful hpc node.
+
+# --- environment parameters ---
+env_params:
+  num_cards: 3 # or 4, for the 4-card variant run
+
+# --- population-based training parameters ---
+pbt_params:
+  # we have 48 cores available. let's use 40 for our workers,
+  # leaving 8 for the main process and system overhead.
+  population_size: 40
+
+  # run for a substantial number of generations to allow for convergence.
+  generations: 100
+
+  # each agent plays many games to get a reliable performance estimate.
+  episodes_per_generation: 20000
+
+  exploit_top_k_percent: 20
+  exploit_bottom_k_percent: 20
+
+# --- agent hyperparameter search space ---
+# same as before, allowing the system to find the best settings.
+hyperparameter_space:
+  batch_size: [128, 256]
+  rl_learning_rate: [0.0001, 0.005]
+  sl_learning_rate: [0.0001, 0.005]
+  gamma: [0.95, 0.999]
+  tau: [0.001, 0.01]
+  gradient_clip: [1.0, 10.0]
+  eta: [0.05, 0.2]
+  epsilon_decay: [20000, 50000]
+
+# --- checkpointing and logging ---
+checkpointing:
+  output_dir: "data/runs/hpc_3_card_1" # a unique name for the hpc run
+  save_every_n_generations: 5

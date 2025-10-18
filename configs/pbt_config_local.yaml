@@ -1,0 +1,26 @@
+
+env_params:
+  num_cards: 3
+
+pbt_params:
+  population_size: 14
+  generations: 50
+
+  episodes_per_generation: 10000
+
+  exploit_top_k_percent: 20
+  exploit_bottom_k_percent: 20
+
+hyperparameter_space:
+  batch_size: [128]
+  rl_learning_rate: [0.0001, 0.005]
+  sl_learning_rate: [0.0001, 0.005]
+  gamma: [0.95, 0.999]
+  tau: [0.001, 0.01]
+  gradient_clip: [1.0, 10.0]
+  eta: [0.05, 0.2]
+  epsilon_decay: [5000, 20000]
+
+checkpointing:
+  output_dir: "data/runs/local_test_run"
+  save_every_n_generations: 2

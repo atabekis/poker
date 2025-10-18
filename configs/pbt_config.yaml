@@ -1,0 +1,34 @@
+# configs/pbt_config.yaml
+
+# --- environment parameters ---
+env_params:
+  num_cards: 3
+
+# --- population-based training parameters ---
+pbt_params:
+  population_size: 8 # number of agents to train in parallel
+  generations: 100  # number of pbt cycles (train -> evaluate -> exploit/explore)
+  episodes_per_generation: 5000 # each agent plays this many games per generation to gather experience and be evaluated.
+  exploit_top_k_percent: 20 # copy weights/configs from the top 20% of performers
+  exploit_bottom_k_percent: 20  # replace the bottom 20% of performers
+
+# --- agent hyperparameter search space ---
+# defines the valid ranges for each hyperparameter. new agents are initialized by sampling from this space, and mutations are clamped to these bounds.
+hyperparameter_space:
+  # discrete choices are represented as a list of values.
+  batch_size: [128, 256]
+
+  # continuous values are represented as a [min, max] list these will be sampled on a log-uniform scale, which is better for learning rates.
+  rl_learning_rate: [0.0001, 0.005]
+  sl_learning_rate: [0.0001, 0.005]
+
+  gamma: [0.95, 0.999] # discount factor for dqn.
+  tau: [0.001, 0.01] # soft update parameter for target network.
+  gradient_clip: [1.0, 10.0] # max norm for gradient clipping.
+  eta: [0.05, 0.2] # nfsp: probability of using the average strategy policy.
+  epsilon_decay: [20000, 50000] # decay rate for exploration.
+
+# --- checkpointing and logging ---
+checkpointing:
+  output_dir: "data/runs/pbt_3_card_run_01"
+  save_every_n_generations: 5
