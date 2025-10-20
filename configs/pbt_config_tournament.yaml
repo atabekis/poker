@@ -1,0 +1,34 @@
+# configs/pbt_config_match_aware.yaml
+
+# --- environment parameters ---
+env_params:
+  num_cards: 3
+  starting_bankroll: 5
+
+# --- population-based training parameters ---
+pbt_params:
+  population_size: 14
+  generations: 150
+  # we now train for a number of full matches, not single hands (episodes)
+  matches_per_generation: 250
+  # inject strategic diversity by playing 20% of matches against fixed benchmarks
+  benchmark_match_prob: 0.2
+  exploit_top_k_percent: 20
+  exploit_bottom_k_percent: 20
+
+# --- agent hyperparameter search space ---
+hyperparameter_space:
+  hidden_size: [64, 128]
+  batch_size: [128]
+  rl_learning_rate: [0.0001, 0.005]
+  sl_learning_rate: [0.0001, 0.005]
+  gamma: [0.95, 0.999]
+  tau: [0.001, 0.01]
+  gradient_clip: [1.0, 10.0]
+  eta: [0.05, 0.2]
+  # epsilon_decay is no longer needed with noisy networks
+
+# --- checkpointing and logging ---
+checkpointing:
+  output_dir: "data/runs/match_aware_run_01"
+  save_every_n_generations: 2

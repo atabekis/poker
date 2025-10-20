@@ -1,0 +1,50 @@
+# configs/pbt_config_high_fidelity.yaml
+# this configuration prioritizes signal quality and long-term strategy
+# over raw speed. it is designed to solve the stagnation problem.
+
+# --- environment parameters ---
+env_params:
+  num_cards: 3
+  starting_bankroll: 10 # use a higher bankroll to encourage longer-term thinking
+
+# --- population-based training parameters ---
+pbt_params:
+  population_size: 14
+  # with slower generations, we run for fewer of them.
+  generations: 250
+
+  # critical change: drastically increase matches to get a reliable performance signal.
+  matches_per_generation: 2000
+
+  # increase pressure from strong, fixed opponents.
+  benchmark_match_prob: 0.3
+
+  exploit_top_k_percent: 20
+  exploit_bottom_k_percent: 20
+
+evaluation_params:
+  # run a full tournament evaluation every n generations.
+  evaluate_every: 10
+  # use a smaller number of matches for interim evals to save time.
+  num_matches: 500
+  internal_matches: 500
+  bankroll: 5 # evaluate using the official tournament bankroll
+
+# --- agent hyperparameter search space ---
+hyperparameter_space:
+  hidden_size: [128, 256] # allow larger networks
+  batch_size: [128, 256]
+  rl_learning_rate: [0.0001, 0.005]
+  sl_learning_rate: [0.0001, 0.005]
+
+  # critical change: force the agent to be patient and value future rewards.
+  gamma: [0.99, 0.999]
+
+  tau: [0.001, 0.01]
+  gradient_clip: [1.0, 10.0]
+  eta: [0.05, 0.2]
+
+# --- checkpointing and logging ---
+checkpointing:
+  output_dir: "data/runs/high_fidelity_run_01"
+  save_every_n_generations: 5

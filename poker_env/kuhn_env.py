@@ -7,70 +7,60 @@ from typing import List, Tuple, Optional
 
 class KuhnPokerEnv:
     """
-    a class representing the kuhn poker environment.
+    a class representing a match-aware kuhn poker environment.
 
-    this environment is parameterized to handle a variable number of cards
-    in the deck, making it suitable for both 3-card and 4-card kuhn poker.
-    it provides a gym-like interface with reset() and step() methods.
-    the state is represented as a one-hot encoded vector.
+    this version tracks player bankrolls throughout a match. the state
+    representation includes a normalized bankroll feature, and the rewards
+    are the direct change in a player's bankroll after a hand.
     """
-    # define actions as class constants for clarity
     PASS = 0
     BET = 1
     NUM_ACTIONS = 2
 
-    def __init__(self, num_cards: int = 3):
+    def __init__(self, num_cards: int = 3, starting_bankroll: int = 10):
         """
-        initializes the kuhn poker environment.
+        initializes the match-aware kuhn poker environment.
 
         :param num_cards: the number of cards in the deck (e.g., 3 or 4).
+        :param starting_bankroll: the bankroll each player starts a match with.
         """
         self.num_cards = num_cards
         self.deck = list(range(self.num_cards))
+        self.starting_bankroll = starting_bankroll
 
-        # the state dimension is num_cards (for one-hot card) + 4 (for betting history)
-        self.state_dim = self.num_cards + 4
+        # state dim: one-hot card + 4 history features + 1 normalized bankroll feature
+        self.state_dim = self.num_cards + 4 + 1
 
-        # state variables that will be reset each hand
+        # match-level state
+        self.bankrolls = [self.starting_bankroll, self.starting_bankroll]
+
+        # hand-level state
         self.cards = [0, 0]
         self.history = ""
         self.current_player = 0
         self.done = False
 
-    def _get_observation(self) -> np.ndarray:
+    def reset_match(self) -> np.ndarray:
         """
-        creates the state vector for the current player.
+        resets the environment to the start of a new match with full bankrolls.
 
-        the state vector consists of two parts:
-        1. a one-hot encoding of the player's card.
-        2. a 4-element binary vector representing the betting history.
-           [p0_passed, p0_bet, p1_passed, p1_bet]
-
-        :returns: a numpy array representing the current state.
+        :returns: the initial observation for the first hand of the match.
         """
-        # one-hot encode the current player's card
-        card_feature = np.zeros(self.num_cards)
-        card_feature[self.cards[self.current_player]] = 1
+        self.bankrolls = [self.starting_bankroll, self.starting_bankroll]
+        return self.reset_hand()
 
-        # encode the betting history
-        history_feature = np.zeros(4)
-        if 'p' in self.history[0::2]:  # player 0's moves are at even indices
-            history_feature[0] = 1
-        if 'b' in self.history[0::2]:
-            history_feature[1] = 1
-        if 'p' in self.history[1::2]:  # player 1's moves are at odd indices
-            history_feature[2] = 1
-        if 'b' in self.history[1::2]:
-            history_feature[3] = 1
-
-        return np.concatenate((card_feature, history_feature)).astype(np.float32)
-
-    def reset(self) -> np.ndarray:
+    def reset_hand(self) -> np.ndarray:
         """
-        resets the environment to the start of a new hand.
+        resets the environment for the next hand within a match.
+        deducts antes from the current bankrolls.
 
-        :returns: the initial observation for player 0.
+        :returns: the initial observation for the new hand.
         """
+        # deduct antes
+        self.bankrolls[0] -= 1
+        self.bankrolls[1] -= 1
+
+        # reset hand-specific state
         random.shuffle(self.deck)
         self.cards = self.deck[:2]
         self.history = ""
@@ -78,97 +68,97 @@ class KuhnPokerEnv:
         self.done = False
         return self._get_observation()
 
-    def get_legal_actions(self) -> List[int]:
+    def _get_observation(self) -> np.ndarray:
         """
-        returns the list of legal actions for the current player.
-        in kuhn poker, both actions are always legal.
+        creates the state vector for the current player, including bankroll info.
 
-        :returns: a list containing the integer representation of legal actions.
+        :returns: a numpy array representing the current state.
         """
+        card_feature = np.zeros(self.num_cards)
+        card_feature[self.cards[self.current_player]] = 1
+
+        history_feature = np.zeros(4)
+        if 'p' in self.history[0::2]: history_feature[0] = 1
+        if 'b' in self.history[0::2]: history_feature[1] = 1
+        if 'p' in self.history[1::2]: history_feature[2] = 1
+        if 'b' in self.history[1::2]: history_feature[3] = 1
+
+        # add normalized bankroll feature
+        total_bankroll = sum(self.bankrolls)
+        if total_bankroll <= 0:
+            normalized_bankroll = 0.5
+        else:
+            normalized_bankroll = self.bankrolls[self.current_player] / total_bankroll
+
+        bankroll_feature = np.array([normalized_bankroll])
+
+        return np.concatenate((card_feature, history_feature, bankroll_feature)).astype(np.float32)
+
+    def get_legal_actions(self) -> List[int]:
+        """returns the list of legal actions for the current player."""
         return [self.PASS, self.BET]
 
-    def _resolve_hand(self) -> int:
+    def _resolve_hand(self):
         """
-        calculates the reward for the player who just acted, at the end of a hand.
-
-        :returns: the integer reward for the player who took the terminal action.
+        resolves the hand and updates player bankrolls directly.
+        this method does not return a reward, it modifies the env state.
         """
-        # when this is called, self.current_player is still the player who just made the terminal move.
-        acting_player = self.current_player
+        pot = 2  # from the antes
 
-        # case 1: one player bets and the other folds
-        if self.history == "bp":  # p0 bets, p1 (acting_player) folds
-            return -1
-        if self.history == "pbp":  # p0 passes, p1 bets, p0 (acting_player) folds
-            return -1
-
-        # case 2: showdown
-        winner = 0 if self.cards[0] > self.cards[1] else 1
-
-        if self.history == "pp":  # both players pass
-            pot_size = 1  # winner gets the ante
-            return pot_size if acting_player == winner else -pot_size
-
-        if self.history in ["bb", "pbb"]:  # both players bet
-            pot_size = 2  # winner gets the ante + the bet
-            return pot_size if acting_player == winner else -pot_size
-
-        # this should not be reached
-        raise RuntimeError(f"invalid terminal history: {self.history}")
-    # def _resolve_hand(self) -> int:
-    #     """
-    #     calculates the reward for the player who just acted, at the end of a hand.
-    #
-    #     :returns: the integer reward for the player who took the terminal action.
-    #     """
-    #     # the player who just acted is the one *before* the turn switch
-    #     acting_player = 1 - self.current_player
-    #     opponent = self.current_player
-    #
-    #     # case 1: one player bets and the other folds
-    #     if self.history == "bp":  # player 0 bets, player 1 passes (folds)
-    #         # player 1 (acting_player) folded, loses their ante
-    #         return -1
-    #     if self.history == "pbp":  # player 0 passes, player 1 bets, player 0 passes (folds)
-    #         # player 0 (acting_player) folded, loses their ante
-    #         return -1
-    #
-    #     # case 2: showdown
-    #     winner = 0 if self.cards[0] > self.cards[1] else 1
-    #
-    #     if self.history == "pp":  # both players pass
-    #         # winner gets the ante from the loser
-    #         return 1 if acting_player == winner else -1
-    #
-    #     if self.history in ["bb", "pbb"]:  # both players bet
-    #         # winner gets the ante + the bet (2 units) from the loser
-    #         return 2 if acting_player == winner else -2
-    #
-    #     # this should not be reached
-    #     raise RuntimeError(f"invalid terminal history: {self.history}")
+        # handle bets/calls to determine final pot and update bankrolls
+        if self.history == 'bp':  # p0 bets, p1 folds
+            self.bankrolls[0] -= 1
+            pot += 1
+            self.bankrolls[0] += pot
+        elif self.history == 'pbp':  # p0 passes, p1 bets, p0 folds
+            self.bankrolls[1] -= 1
+            pot += 1
+            self.bankrolls[1] += pot
+        elif self.history in ['bb', 'pbb']:  # showdown after betting
+            self.bankrolls[0] -= 1
+            self.bankrolls[1] -= 1
+            pot += 2
+            winner = 0 if self.cards[0] > self.cards[1] else 1
+            self.bankrolls[winner] += pot
+        elif self.history == 'pp':  # showdown after passing
+            winner = 0 if self.cards[0] > self.cards[1] else 1
+            self.bankrolls[winner] += pot
+        else:
+            raise RuntimeError(f"invalid terminal history: {self.history}")
 
     def step(self, action: int) -> Tuple[Optional[np.ndarray], int, bool, dict]:
         """
-        advances the environment by one step.
+        advances the environment by one step. the reward is now the change in bankroll.
+        the 'done' flag indicates the end of a *hand*, while the info dict
+        indicates the end of a *match*.
 
         :param action: the action taken by the current player.
-        :returns: a tuple containing (next_observation, reward, done, info_dict).
+        :returns: a tuple of (next_observation, reward, hand_done, info_dict).
         """
         if self.done:
-            raise ValueError("step() called after the episode was done.")
+            raise ValueError("step() called after the hand was done.")
 
         action_char = 'p' if action == self.PASS else 'b'
         self.history += action_char
 
-        # check for terminal states
+        # check for terminal hand states
         if self.history in ["pp", "bb", "bp", "pbp", "pbb"]:
             self.done = True
-            reward = self._resolve_hand()
-            return None, reward, True, {}
 
-        # if the game is not over, switch players
+            bankrolls_before = self.bankrolls[:]
+            self._resolve_hand()
+
+            rewards = [b_after - b_before for b_after, b_before in zip(self.bankrolls, bankrolls_before)]
+            reward_for_acting_player = rewards[self.current_player]
+
+            match_over = any(b <= 0 for b in self.bankrolls)
+            info = {
+                'match_over': match_over,
+                'final_bankrolls': self.bankrolls
+            }
+
+            return None, reward_for_acting_player, True, info
+
+        # if the hand is not over, switch players
         self.current_player = 1 - self.current_player
-
-        # no intermediate rewards
-        reward = 0
-        return self._get_observation(), reward, False, {}
+        return self._get_observation(), 0, False, {}
