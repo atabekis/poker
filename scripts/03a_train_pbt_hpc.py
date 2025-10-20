@@ -42,11 +42,9 @@ class InferenceAgent:
             return torch.multinomial(probs, num_samples=1).item()
 
 
-# --- hpc optimization: worker function is updated ---
-def worker(worker_id, agent_config, agent_weights, policy_store_path, pbt_params, env_params):
+def worker(worker_id, agent_config, agent_weights, policy_store_path, results_store_path, pbt_params, env_params):
     """
-    hpc-optimized worker. it reads opponent policies from disk instead of receiving
-    them via ipc, avoiding the data transfer bottleneck.
+    hpc-optimized worker with lazy loading of opponent policies.
     """
     random.seed(os.getpid() * int(time.time()) % (2 ** 32 - 1))
     np.random.seed(os.getpid() * int(time.time()) % (2 ** 32 - 1))
@@ -63,27 +61,41 @@ def worker(worker_id, agent_config, agent_weights, policy_store_path, pbt_params
     if agent_weights:
         agent.load_state_dicts(agent_weights)
 
-    # --- hpc optimization: load opponents from the policy store ---
-    population_opponents = []
+    # --- lazy loading optimization: setup opponent cache and id list ---
+    opponent_cache = {}  # cache for instantiated inferenceagent objects
+    opponent_ids = []  # list of potential opponent ids
     if os.path.exists(policy_store_path):
         for policy_file in os.listdir(policy_store_path):
-            if policy_file.endswith('.pth'):
-                policy_path = os.path.join(policy_store_path, policy_file)
-                opponent_data = torch.load(policy_path, map_location=device)
-                info = {'config': opponent_data['config'], 'weights': opponent_data['weights']}
-                population_opponents.append(
-                    InferenceAgent(info['config'], info['weights'], env.state_dim, env.NUM_ACTIONS, device))
+            if policy_file.startswith('policy_agent_') and policy_file.endswith('.pth'):
+                agent_id_str = policy_file.replace('policy_agent_', '').replace('.pth', '')
+                opponent_ids.append(int(agent_id_str))
 
     benchmark_opponents = [RandomAgent(), CFRAgent()]
 
-    # the rest of the worker function (training loop) is identical to the original
     match_wins = 0
     matches_played = 0
     for _ in range(pbt_params['matches_per_generation']):
+        # select opponent for the entire match
         if random.random() < pbt_params['benchmark_match_prob'] and benchmark_opponents:
             opponent = random.choice(benchmark_opponents)
         else:
-            opponent = random.choice(population_opponents) if population_opponents else agent
+            # --- lazy loading optimization: load opponent on demand ---
+            if not opponent_ids:
+                opponent = agent  # fallback to self-play if no opponents exist
+            else:
+                chosen_opponent_id = random.choice(opponent_ids)
+                if chosen_opponent_id in opponent_cache:
+                    opponent = opponent_cache[chosen_opponent_id]
+                else:
+                    # opponent not in cache, load it from disk
+                    policy_path = os.path.join(policy_store_path, f"policy_agent_{chosen_opponent_id}.pth")
+                    opponent_data = torch.load(policy_path, map_location=device)
+                    new_opponent = InferenceAgent(opponent_data['config'], opponent_data['weights'], env.state_dim,
+                                                  env.NUM_ACTIONS, device)
+                    opponent_cache[chosen_opponent_id] = new_opponent
+                    opponent = new_opponent
+
+        # the rest of the training loop is identical
         env.reset_match()
         is_agent_player_0 = random.choice([True, False])
         match_over = False
@@ -115,11 +127,14 @@ def worker(worker_id, agent_config, agent_weights, policy_store_path, pbt_params
         agent_bankroll = final_bankrolls[0] if is_agent_player_0 else final_bankrolls[1]
         if agent_bankroll > 0: match_wins += 1
         matches_played += 1
+
     match_win_rate = match_wins / matches_played if matches_played > 0 else 0.0
+
     final_weights = agent.get_state_dicts()
-    for key in final_weights:
-        final_weights[key] = {k: v.cpu() for k, v in final_weights[key].items()}
-    return {'id': worker_id, 'final_weights': final_weights, 'performance': match_win_rate}
+    result_data = {'id': worker_id, 'final_weights': final_weights, 'performance': match_win_rate}
+    result_file_path = os.path.join(results_store_path, f"result_agent_{worker_id}.pth")
+    torch.save(result_data, result_file_path)
+    return
 
 
 def main(args):
@@ -128,9 +143,10 @@ def main(args):
         config = yaml.safe_load(f)
     os.makedirs(config['checkpointing']['output_dir'], exist_ok=True)
 
-    # --- hpc optimization: create a dedicated directory for policies ---
     policy_store_path = os.path.join(config['checkpointing']['output_dir'], "policy_store")
+    results_store_path = os.path.join(config['checkpointing']['output_dir'], "results_store")
     os.makedirs(policy_store_path, exist_ok=True)
+    os.makedirs(results_store_path, exist_ok=True)
 
     population = []
     start_generation = 0
@@ -156,26 +172,27 @@ def main(args):
         for gen in range(start_generation, num_generations):
             print("\n" + "=" * 50 + f"\ngeneration {gen + 1}/{num_generations}\n" + "=" * 50)
 
-            # --- hpc optimization: save policies to disk before starting workers ---
-            if os.path.exists(policy_store_path):
-                for f in os.listdir(policy_store_path):
-                    os.remove(os.path.join(policy_store_path, f))
-
+            for f in os.listdir(policy_store_path): os.remove(os.path.join(policy_store_path, f))
             for p in population:
                 if p['weights']:
                     policy_data = {'config': p['config'], 'weights': p['weights']['as_net']}
                     torch.save(policy_data, os.path.join(policy_store_path, f"policy_agent_{p['id']}.pth"))
 
-            # --- hpc optimization: tasks now contain the path, not the data ---
+            for f in os.listdir(results_store_path): os.remove(os.path.join(results_store_path, f))
+
             tasks = [(
                 p['id'], p['config'], p['weights'],
-                policy_store_path,  # send path instead of opponent list
+                policy_store_path, results_store_path,
                 config['pbt_params'], config['env_params']
             ) for p in population]
 
-            # the rest of the main loop is identical to the original
             with Pool() as pool:
-                results = pool.starmap(worker, tasks)
+                pool.starmap(worker, tasks)
+
+            results = []
+            for i in range(len(population)):
+                result_file = os.path.join(results_store_path, f"result_agent_{i}.pth")
+                results.append(torch.load(result_file))
 
             results_map = {res['id']: res for res in results}
             for p in population:
@@ -183,7 +200,7 @@ def main(args):
                 p['performance'] = results_map[p['id']]['performance']
 
             population.sort(key=lambda x: x['performance'], reverse=True)
-            best_perf = population[0]['performance']
+            best_perf = population[0]['performance'];
             worst_perf = population[-1]['performance']
             avg_perf = sum(p['performance'] for p in population) / len(population)
             print(
@@ -192,7 +209,7 @@ def main(args):
             num_to_replace = int(
                 config['pbt_params']['population_size'] * (config['pbt_params']['exploit_bottom_k_percent'] / 100))
             if num_to_replace > 0:
-                top_performers = population[:-num_to_replace]
+                top_performers = population[:-num_to_replace];
                 bottom_performers = population[-num_to_replace:]
                 for bottom_agent in bottom_performers:
                     top_agent = random.choice(top_performers)
