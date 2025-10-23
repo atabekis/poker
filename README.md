@@ -1,9 +1,5 @@
-<div style='display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: -50px; gap: 30px;'>
-<h1 style='flex-grow: 1; white-space: nowrap;'>R2-Deal-2: Playing Kuhn Poker With Agents</h1>
-<div>
-<img src='https://upload.wikimedia.org/wikipedia/commons/7/78/Eindhoven_University_of_Technology_logo_new.png' alt='tue' style='display: block; height: 70px; margin-bottom: -5px;'>
-</div>
-</div>
+<!-- FIX 1: Header div is now a single, unbroken line of HTML to prevent unwanted <p> tags -->
+<div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: -50px; gap: 30px;"><h1 style="flex-grow: 1; white-space: nowrap;">R2-Deal-2: Playing Kuhn Poker With Agents</h1><div><img src="https://upload.wikimedia.org/wikipedia/commons/7/78/Eindhoven_University_of_Technology_logo_new.png" alt="tue" style="display: block; height: 70px; margin-bottom: -5px;"></div></div>
 <br>
 
 <h2>5ARA0 - Software Engineering for Artificial Intelligence</h2>
@@ -12,6 +8,7 @@
 
 <h3>Group 20</h3>
 
+<!-- FIX 2: The multi-column layout uses a robust <table> -->
 <table style="width: 100%; border-collapse: collapse; border: none;">
   <tbody>
     <tr>
@@ -40,3 +37,6 @@
 </table>
 
 <hr>
+
+
+# And what happends if i add this
