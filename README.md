@@ -1,14 +1,22 @@
-<!-- FIX 1: Header div is now a single, unbroken line of HTML to prevent unwanted <p> tags -->
-<div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: -50px; gap: 30px;"><h1 style="flex-grow: 1; white-space: nowrap;">R2-Deal-2: Playing Kuhn Poker With Agents</h1><div><img src="https://upload.wikimedia.org/wikipedia/commons/7/78/Eindhoven_University_of_Technology_logo_new.png" alt="tue" style="display: block; height: 70px; margin-bottom: -5px;"></div></div>
+<!-- HEADER SECTION -->
+<div style="margin-bottom: -50px;">
+  <table style="width:100%; border: none;">
+    <tr>
+      <td style="width: 80%; border: none;">
+        <h1 style="margin: 0;">R2-Deal-2: Playing Kuhn Poker With Agents</h1>
+      </td>
+      <td style="width: 20%; text-align: right; border: none;">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/7/78/Eindhoven_University_of_Technology_logo_new.png" alt="tue" style="height: 70px; margin-bottom: -5px;">
+      </td>
+    </tr>
+  </table>
+</div>
 <br>
 
+<!-- REMAINDER OF YOUR README -->
 <h2>5ARA0 - Software Engineering for Artificial Intelligence</h2>
-
 <hr>
-
 <h3>Group 20</h3>
-
-<!-- FIX 2: The multi-column layout uses a robust <table> -->
 <table style="width: 100%; border-collapse: collapse; border: none;">
   <tbody>
     <tr>
@@ -19,7 +27,7 @@
       </td>
       <td style="width: 25%; padding: 10px; vertical-align: top; border: none;">
         <strong>Pamela Çeçe</strong><br>
-        1418424<br>
+        141824<br>
         <a href="mailto:p.cece@student.tue.nl">p.cece@student.tue.nl</a>
       </td>
       <td style="width: 25%; padding: 10px; vertical-align: top; border: none;">
@@ -35,8 +43,8 @@
     </tr>
   </tbody>
 </table>
-
 <hr>
 
 
 # And what happends if i add this
+asdasd
